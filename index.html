@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#ef6f30" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>MARTINI</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <div id="appShell" class="app-shell">
+      <header id="topShell" class="top-shell">
+        <div id="alertBanner" class="alert-banner alert-neutral" aria-live="polite">
+          Import a shot list and set hard wrap to begin.
+        </div>
+
+        <section class="status-board" aria-label="Live production status">
+          <div class="status-strip">
+            <div class="clock-cluster">
+              <h1 id="currentTime" class="current-time">--:--</h1>
+              <p id="dayStatus" class="day-status">Waiting to start</p>
+              <p id="loadedFileName" class="file-name">No shot list loaded</p>
+            </div>
+
+            <div class="metrics-cluster">
+              <div class="metric-item">
+                <span class="metric-label">Wrap</span>
+                <article id="hardWrapCard" class="metric-value-wrap">
+                  <button id="hardWrapEditButton" class="wrap-edit-button" type="button">
+                    <strong id="hardWrapDisplay" class="metric-value">--</strong>
+                    <span id="hardWrapEditHint" class="metric-edit-hint">edit</span>
+                  </button>
+                  <div id="liveHardWrapEditor" class="hard-wrap-editor" hidden>
+                    <label class="visually-hidden" for="liveHardWrapInput">Edit hard wrap</label>
+                    <input id="liveHardWrapInput" class="hard-wrap-input" type="time" />
+                    <button id="liveHardWrapDoneButton" class="mini-button hard-wrap-done" type="button">
+                      Done
+                    </button>
+                  </div>
+                </article>
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">Forecast</span>
+                <strong id="forecastWrapDisplay" class="metric-value">--</strong>
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">Must-Have</span>
+                <strong id="requiredRemainingDisplay" class="metric-value">0</strong>
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">Pace</span>
+                <strong id="paceStatusDisplay" class="metric-value metric-pace">Ready</strong>
+              </div>
+            </div>
+
+            <div class="state-cluster">
+              <strong id="paceIndicatorDisplay" class="state-indicator state-ready">Ready</strong>
+            </div>
+          </div>
+        </section>
+      </header>
+
+      <main class="content-shell">
+        <section id="setupPanel" class="panel setup-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Setup</p>
+              <h2>Import the day's shot list</h2>
+            </div>
+            <p class="supporting-copy">Runs entirely on this device and keeps progress in local storage.</p>
+          </div>
+
+          <div class="setup-grid">
+            <label for="csvInput" class="import-tile">
+              <span class="tile-label">Shot List CSV</span>
+              <strong id="importSummary">Choose a CSV file</strong>
+              <span class="tile-hint">Headers: id, scene, label, planned minutes, priority (1/2/3), optional deadline tag</span>
+            </label>
+            <input id="csvInput" class="visually-hidden" type="file" accept=".csv,text/csv" />
+
+            <label class="time-tile" for="hardWrapInput">
+              <span class="tile-label">Hard Wrap</span>
+              <input id="hardWrapInput" class="time-input" type="time" />
+            </label>
+          </div>
+
+          <div class="setup-actions">
+            <button id="startDayButton" class="primary-button" type="button" disabled>
+              Start Day
+            </button>
+            <button id="resetButton" class="secondary-button" type="button">
+              Reset
+            </button>
+          </div>
+        </section>
+
+        <section id="trackerPanel" class="tracker-panel">
+          <article id="currentShotPanel" class="panel current-shot-panel">
+            <div class="panel-head current-head">
+              <div>
+                <p class="eyebrow">Current Shot</p>
+                <h2 id="currentShotTitle">No active shot</h2>
+              </div>
+              <div id="currentShotBadges" class="badge-row"></div>
+            </div>
+
+            <div class="current-shot-card">
+              <p id="currentShotScene" class="shot-scene">Load a shot list to begin.</p>
+              <p id="currentShotLabel" class="shot-label">The next pending shot will appear here.</p>
+              <div class="shot-metrics">
+                <span id="currentShotMinutes" class="shot-pill">Planned -- min</span>
+                <span id="currentShotDeadline" class="shot-pill">No deadline</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel queue-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Up Next</p>
+                <h2>Next shots</h2>
+              </div>
+              <p class="supporting-copy">Tap any pending shot to make it current.</p>
+            </div>
+
+            <div id="upNextList" class="queue-list" aria-live="polite"></div>
+          </article>
+
+          <article id="morePendingPanel" class="panel pending-panel" hidden>
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Quick Switch</p>
+                <h2>More pending</h2>
+              </div>
+              <p class="supporting-copy">Tap any pending shot to make it current.</p>
+            </div>
+
+            <div id="morePendingList" class="pending-list" aria-live="polite"></div>
+          </article>
+
+          <article class="panel summary-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Day Snapshot</p>
+                <h2>Resolved work</h2>
+              </div>
+              <div class="summary-head-actions">
+                <p id="lastActionText" class="supporting-copy">No actions yet.</p>
+                <button id="liveResetButton" class="mini-button" type="button">
+                  New Day
+                </button>
+              </div>
+            </div>
+
+            <div class="summary-grid">
+              <div class="summary-chip">
+                <span>Done</span>
+                <strong id="doneCount">0</strong>
+              </div>
+              <div class="summary-chip">
+                <span>Skipped</span>
+                <strong id="skippedCount">0</strong>
+              </div>
+              <div class="summary-chip">
+                <span>+1 Shots</span>
+                <strong id="extraShotCount">0</strong>
+              </div>
+              <div class="summary-chip">
+                <span>Total Planned</span>
+                <strong id="totalShotCount">0</strong>
+              </div>
+            </div>
+          </article>
+        </section>
+      </main>
+
+      <footer id="actionBar" class="action-bar">
+        <button
+          id="doneButton"
+          class="action-button action-done"
+          type="button"
+          aria-label="Mark current shot done"
+          disabled
+        >
+          DONE
+        </button>
+        <button
+          id="skipButton"
+          class="action-button action-skip"
+          type="button"
+          aria-label="Skip current shot"
+          disabled
+        >
+          SKIP
+        </button>
+        <button
+          id="addShotButton"
+          class="action-button action-extra"
+          type="button"
+          aria-label="Add one extra shot"
+          disabled
+        >
+          +1 SHOT
+        </button>
+      </footer>
+    </div>
+  </body>
+</html>

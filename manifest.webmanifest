@@ -1,0 +1,9 @@
+{
+  "name": "MARTINI",
+  "short_name": "MARTINI",
+  "description": "Offline one-screen shoot tracker for indie film crews.",
+  "display": "standalone",
+  "start_url": "./index.html",
+  "background_color": "#f4efe4",
+  "theme_color": "#ef6f30"
+}
