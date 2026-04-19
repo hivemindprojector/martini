@@ -3,6 +3,8 @@
 const STORAGE_KEY = "martini:v1";
 const DISPLAY_QUEUE_SIZE = 4;
 const ACTIVE_QUEUE_SIZE = 2;
+const UNDO_WINDOW_MS = 5000;
+const OVER_WARN_THRESHOLD_MIN = 2;
 
 const dom = {};
 const state = createDefaultState();
@@ -24,7 +26,7 @@ function init() {
 
 function createDefaultState() {
   return {
-    version: 3,
+    version: 4,
     fileName: "",
     draftHardWrapTime: "",
     startedAt: "",
@@ -33,6 +35,7 @@ function createDefaultState() {
     shots: [],
     extraShots: [],
     lastActionAt: "",
+    // lastUndo is transient — never persisted
   };
 }
 
@@ -63,12 +66,14 @@ function cacheDom() {
     "startDayButton",
     "resetButton",
     "liveResetButton",
+    "exportButton",
     "currentShotPanel",
     "currentShotTitle",
     "currentShotBadges",
     "currentShotScene",
     "currentShotLabel",
     "currentShotMinutes",
+    "currentShotLive",
     "currentShotDeadline",
     "upNextList",
     "morePendingPanel",
@@ -82,6 +87,9 @@ function cacheDom() {
     "skipButton",
     "addShotButton",
     "actionBar",
+    "undoToast",
+    "undoToastText",
+    "undoToastButton",
   ];
 
   ids.forEach((id) => {
@@ -102,6 +110,8 @@ function bindEvents() {
   dom.addShotButton.addEventListener("click", addExtraShot);
   dom.resetButton.addEventListener("click", resetDay);
   dom.liveResetButton.addEventListener("click", resetDay);
+  dom.exportButton.addEventListener("click", exportDayLog);
+  dom.undoToastButton.addEventListener("click", undoLastResolution);
 }
 
 function handleHardWrapChange(event) {
@@ -137,6 +147,7 @@ async function handleCsvFile(event) {
     state.startedAt = "";
     state.hardWrapAt = "";
     state.activeShotId = parsedShots[0] ? parsedShots[0].id : "";
+    state.lastUndo = null;
     isLiveHardWrapEditing = false;
 
     if (!state.draftHardWrapTime) {
@@ -168,6 +179,7 @@ function startDay() {
   state.startedAt = now.toISOString();
   state.hardWrapAt = composeFutureDateFromTime(now, hardWrapValue).toISOString();
   state.lastActionAt = state.startedAt;
+  state.lastUndo = null;
   isLiveHardWrapEditing = false;
   setActiveShot(state.activeShotId);
 
@@ -182,8 +194,23 @@ function resolveCurrentShot(nextStatus) {
   }
 
   const wasLastRequired = nextStatus === "done" && isLastRequiredShot(currentShot);
-
   const stamp = new Date().toISOString();
+
+  // Snapshot for undo BEFORE mutating
+  state.lastUndo = {
+    shotId: currentShot.id,
+    prevStatus: currentShot.status,
+    prevResolvedAt: currentShot.resolvedAt,
+    prevDoneAt: currentShot.doneAt,
+    prevSkippedAt: currentShot.skippedAt,
+    prevStartedAt: currentShot.startedAt,
+    prevActiveShotId: state.activeShotId,
+    prevLastActionAt: state.lastActionAt,
+    expiresAt: Date.now() + UNDO_WINDOW_MS,
+    action: nextStatus,
+    wasLastRequired,
+  };
+
   currentShot.status = nextStatus;
   currentShot.resolvedAt = stamp;
   currentShot.doneAt = nextStatus === "done" ? stamp : "";
@@ -197,6 +224,34 @@ function resolveCurrentShot(nextStatus) {
   if (wasLastRequired) {
     playMartiniClink();
   }
+}
+
+function undoLastResolution() {
+  const u = state.lastUndo;
+  if (!u || Date.now() > u.expiresAt) {
+    state.lastUndo = null;
+    render();
+    return;
+  }
+
+  const shot = state.shots.find((s) => s.id === u.shotId);
+  if (!shot) {
+    state.lastUndo = null;
+    render();
+    return;
+  }
+
+  shot.status = u.prevStatus;
+  shot.resolvedAt = u.prevResolvedAt || "";
+  shot.doneAt = u.prevDoneAt || "";
+  shot.skippedAt = u.prevSkippedAt || "";
+  shot.startedAt = u.prevStartedAt || "";
+  state.activeShotId = u.prevActiveShotId || shot.id;
+  state.lastActionAt = u.prevLastActionAt || "";
+  state.lastUndo = null;
+
+  persistState();
+  render();
 }
 
 function isLastRequiredShot(shot) {
@@ -266,6 +321,19 @@ function addExtraShot() {
 }
 
 function resetDay() {
+  const hasWork =
+    state.shots.some((s) => s.status !== "pending") ||
+    state.extraShots.length > 0;
+
+  if (hasWork) {
+    const exportFirst = window.confirm(
+      "Export today's log as CSV before clearing? (Cancel skips export.)"
+    );
+    if (exportFirst) {
+      exportDayLog();
+    }
+  }
+
   if (!window.confirm("Clear the current MARTINI day and shot list?")) {
     return;
   }
@@ -278,8 +346,83 @@ function resetDay() {
   render();
 }
 
+// ── CSV EXPORT ──
+function exportDayLog() {
+  const header = [
+    "id",
+    "scene",
+    "label",
+    "planned_minutes",
+    "priority",
+    "status",
+    "started_at",
+    "resolved_at",
+    "deadline_tag",
+  ].join(",");
+
+  const plannedRows = state.shots.map((s) =>
+    [
+      s.id,
+      s.scene,
+      s.label,
+      s.plannedMinutes,
+      s.priority,
+      s.status,
+      s.startedAt || "",
+      s.resolvedAt || "",
+      s.deadlineTag || "",
+    ]
+      .map(csvEscape)
+      .join(",")
+  );
+
+  const extraRows = state.extraShots.map((e, i) =>
+    [
+      `extra-${i + 1}`,
+      "",
+      "+1 pickup",
+      "",
+      "",
+      "extra",
+      "",
+      e.timestamp,
+      "",
+    ]
+      .map(csvEscape)
+      .join(",")
+  );
+
+  const csv = [header, ...plannedRows, ...extraRows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  const baseName =
+    (state.fileName || "day").replace(/\.csv$/i, "").replace(/[^a-z0-9_-]+/gi, "-") || "day";
+  const filename = `martini-log-${baseName}-${stamp}.csv`;
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function csvEscape(value) {
+  const s = String(value ?? "");
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
 function tick() {
   now = new Date();
+
+  // Auto-expire undo window
+  if (state.lastUndo && Date.now() > state.lastUndo.expiresAt) {
+    state.lastUndo = null;
+  }
+
   render();
 }
 
@@ -287,6 +430,10 @@ function render() {
   if (syncActiveShotSelection()) {
     persistState();
   }
+
+  // Stamp active shot's startedAt lazily here so tick catches it too
+  stampActiveShotStartedAt();
+
   const metrics = computeMetrics();
   const alert = pickTopAlert(metrics);
   const stateIndicator = getStateIndicator(metrics);
@@ -339,10 +486,17 @@ function render() {
     ? `Last action ${formatTime(new Date(state.lastActionAt), true)}`
     : "No actions yet.";
 
+  // Export enabled once there's any recorded work
+  const hasWork =
+    state.shots.some((s) => s.status !== "pending") || state.extraShots.length > 0;
+  dom.exportButton.disabled = !hasWork;
+
   renderCurrentShot(metrics.currentShot);
   renderQueue(metrics.queueShots, metrics.currentShot);
   renderMorePending(metrics.morePendingShots);
   dom.morePendingPanel.hidden = !state.startedAt || metrics.morePendingShots.length === 0;
+
+  renderUndoToast();
 
   const canStart = !state.startedAt && state.shots.length > 0 && Boolean(dom.hardWrapInput.value);
   dom.startDayButton.disabled = !canStart;
@@ -353,6 +507,24 @@ function render() {
   dom.addShotButton.disabled = !state.startedAt;
 
   syncLayoutChrome();
+}
+
+function renderUndoToast() {
+  const u = state.lastUndo;
+  if (!u || Date.now() > u.expiresAt) {
+    dom.undoToast.hidden = true;
+    return;
+  }
+
+  const shot = state.shots.find((s) => s.id === u.shotId);
+  if (!shot) {
+    dom.undoToast.hidden = true;
+    return;
+  }
+
+  const verb = u.action === "done" ? "marked DONE" : "SKIPPED";
+  dom.undoToastText.textContent = `Shot ${shot.id} ${verb}.`;
+  dom.undoToast.hidden = false;
 }
 
 function renderCurrentShot(shot) {
@@ -368,6 +540,7 @@ function renderCurrentShot(shot) {
       ? "Use +1 SHOT for any extra pickups still happening."
       : "The next pending shot will appear here.";
     dom.currentShotMinutes.textContent = "Planned -- min";
+    dom.currentShotLive.hidden = true;
     dom.currentShotDeadline.textContent = "No deadline";
     return;
   }
@@ -380,6 +553,22 @@ function renderCurrentShot(shot) {
   dom.currentShotDeadline.textContent = shot.deadlineTag
     ? `Deadline ${formatDeadlineText(shot.deadlineTag)}`
     : "No deadline";
+
+  // Per-shot live timer
+  if (state.startedAt && shot.startedAt) {
+    const elapsedMin = (now.getTime() - new Date(shot.startedAt).getTime()) / 60000;
+    const overBy = elapsedMin - shot.plannedMinutes;
+    if (overBy > 0) {
+      dom.currentShotLive.textContent = `Over by ${Math.round(overBy)} min`;
+    } else {
+      dom.currentShotLive.textContent = `Live ${Math.max(0, Math.round(elapsedMin))} min`;
+    }
+    dom.currentShotLive.classList.toggle("is-over", overBy > OVER_WARN_THRESHOLD_MIN);
+    dom.currentShotLive.hidden = false;
+  } else {
+    dom.currentShotLive.hidden = true;
+    dom.currentShotLive.classList.remove("is-over");
+  }
 
   if (state.startedAt) {
     appendBadge("Active", "badge-active");
@@ -442,16 +631,12 @@ function computeMetrics() {
   const hardWrapAt = state.hardWrapAt ? new Date(state.hardWrapAt) : null;
   const elapsedMinutes = startedAt ? Math.max(0, (now.getTime() - startedAt.getTime()) / 60000) : 0;
 
-  const paceRatio = startedAt && plannedResolvedMinutes > 0
-    ? Math.max(0.1, elapsedMinutes / plannedResolvedMinutes)
-    : 1;
+  const paceRatio = computePaceRatio(startedAt, plannedResolvedMinutes, elapsedMinutes, currentShot);
 
   let forecastWrapAt = null;
   if (startedAt) {
     const forecastRemainingMinutes = orderedPendingShots.length
-      ? plannedResolvedMinutes > 0
-        ? remainingPlannedMinutes * paceRatio
-        : remainingPlannedMinutes
+      ? remainingPlannedMinutes * paceRatio
       : 0;
     forecastWrapAt = new Date(now.getTime() + forecastRemainingMinutes * 60000);
   }
@@ -486,6 +671,31 @@ function computeMetrics() {
   };
 }
 
+// Improved pace ratio with cold-start handling.
+// - Once any shots resolve, use resolved-vs-elapsed as the signal.
+// - Cold start: if the active shot is already past its plan, factor that in.
+// - Floor at 0.5 (up from 0.1) so a fluke fast first shot can't make the forecast absurd.
+function computePaceRatio(startedAt, plannedResolvedMinutes, elapsedMinutes, currentShot) {
+  if (!startedAt) return 1;
+
+  if (plannedResolvedMinutes > 0) {
+    return Math.max(0.5, elapsedMinutes / plannedResolvedMinutes);
+  }
+
+  // Cold start — nothing resolved yet
+  if (currentShot && currentShot.startedAt && currentShot.plannedMinutes > 0) {
+    const activeElapsedMin = Math.max(
+      0,
+      (now.getTime() - new Date(currentShot.startedAt).getTime()) / 60000
+    );
+    if (activeElapsedMin > currentShot.plannedMinutes) {
+      return Math.max(1, activeElapsedMin / currentShot.plannedMinutes);
+    }
+  }
+
+  return 1;
+}
+
 function getRequiredRisk(requiredShots, hardWrapAt, paceRatio) {
   if (!state.startedAt || !hardWrapAt || !requiredShots.length) {
     return { count: 0 };
@@ -505,6 +715,8 @@ function getRequiredRisk(requiredShots, hardWrapAt, paceRatio) {
   return { count: atRiskCount };
 }
 
+// Deadline conflicts: accumulate time for ALL pending shots (because P3 still
+// takes time on the day), but only surface conflicts for P1/P2. P3 is silent.
 function getDeadlineConflicts(pendingShots, startedAt, paceRatio) {
   if (!state.startedAt || !pendingShots.length) {
     return [];
@@ -516,6 +728,8 @@ function getDeadlineConflicts(pendingShots, startedAt, paceRatio) {
 
   pendingShots.forEach((shot) => {
     cumulativeMinutes += shot.plannedMinutes * paceRatio;
+    if (shot.priority === 3) return; // silent by design
+
     const predictedFinish = new Date(now.getTime() + cumulativeMinutes * 60000);
     const deadlineAt = parseDeadlineTag(shot.deadlineTag, reference);
     if (deadlineAt && predictedFinish.getTime() > deadlineAt.getTime()) {
@@ -578,17 +792,6 @@ function pickTopAlert(metrics) {
     };
   }
 
-  // Any other deadline conflict
-  const anyConflict = metrics.deadlineConflicts[0];
-  if (anyConflict) {
-    return {
-      className: "alert-warning",
-      message: `Deadline conflict: Shot ${anyConflict.shot.id} slips past ${formatTime(
-        anyConflict.deadlineAt, true
-      )}.`,
-    };
-  }
-
   if (metrics.forecastPastHardWrap && metrics.hardWrapAt && metrics.forecastWrapAt) {
     return {
       className: "alert-warning",
@@ -629,7 +832,11 @@ function getStateIndicator(metrics) {
     return { label: "READY", className: "state-ready" };
   }
 
-  if (metrics.deadlineConflicts.length || metrics.requiredRisk.count > 0) {
+  // P1/P2 deadline risks or any required risk → state-risk
+  const hasActionableDeadlineRisk = metrics.deadlineConflicts.some(
+    (c) => c.shot.priority === 1 || c.shot.priority === 2
+  );
+  if (hasActionableDeadlineRisk || metrics.requiredRisk.count > 0) {
     return { label: "DEADLINE RISK", className: "state-risk" };
   }
 
@@ -757,6 +964,7 @@ function buildShotFromRow(row, fieldIndexes, csvLineNumber) {
     priority: parsePriorityValue(getCell(row, fieldIndexes.priority)),
     deadlineTag: fieldIndexes.deadlineTag === -1 ? "" : getCell(row, fieldIndexes.deadlineTag),
     status: "pending",
+    startedAt: "",
     resolvedAt: "",
     doneAt: "",
     skippedAt: "",
@@ -819,8 +1027,26 @@ function setActiveShot(id) {
 
   const requestedId = id ? String(id) : "";
   const nextActiveShot = requestedId ? pendingShots.find((shot) => shot.id === requestedId) || null : null;
-  state.activeShotId = (nextActiveShot || pendingShots[0]).id;
-  return nextActiveShot || pendingShots[0];
+  const chosen = nextActiveShot || pendingShots[0];
+  state.activeShotId = chosen.id;
+
+  // Stamp startedAt on first activation while live
+  if (state.startedAt && !chosen.startedAt) {
+    chosen.startedAt = new Date().toISOString();
+  }
+
+  return chosen;
+}
+
+// Called every tick — ensures the active shot has a startedAt once the day is running
+function stampActiveShotStartedAt() {
+  if (!state.startedAt) return;
+  const active = getActiveShot();
+  if (active && !active.startedAt) {
+    active.startedAt = new Date().toISOString();
+    // No persistState here — caller's render cycle handles persistence on actions;
+    // the timestamp will persist on the next user action. Acceptable trade-off.
+  }
 }
 
 function handleActiveShotSelection(id) {
@@ -955,7 +1181,10 @@ function sumMinutes(shots) {
 
 function describePace(startedAt, plannedResolvedMinutes, paceRatio, behindMinutes) {
   if (!startedAt) return "Ready";
-  if (plannedResolvedMinutes <= 0) return "Waiting for first lock";
+  if (plannedResolvedMinutes <= 0) {
+    if (behindMinutes >= 5) return `Behind ${Math.round(behindMinutes)} min`;
+    return "Waiting for first lock";
+  }
   if (paceRatio > 1.08) return `Behind ${Math.round((paceRatio - 1) * 100)}%`;
   if (paceRatio < 0.92) return `Ahead ${Math.round((1 - paceRatio) * 100)}%`;
   if (behindMinutes >= 5) return `Behind ${Math.round(behindMinutes)} min`;
@@ -1006,13 +1235,6 @@ function formatMinutes(minutes) {
 
 function formatDeadlineText(tag) {
   return tag.trim();
-}
-
-function buildPill(text) {
-  const pill = document.createElement("span");
-  pill.className = "shot-pill";
-  pill.textContent = text;
-  return pill;
 }
 
 function appendBadge(text, className) {
@@ -1174,9 +1396,12 @@ function normalizeRestoredState() {
   if (typeof state.lastActionAt !== "string") { state.lastActionAt = ""; changed = true; }
   if (state.lastActionAt && !isValidDateValue(state.lastActionAt)) { state.lastActionAt = ""; changed = true; }
 
-  if (state.version !== 3) { state.version = 3; changed = true; }
+  // Always clear transient undo on load — stale undo across sessions is dangerous
+  if (state.lastUndo) { state.lastUndo = null; changed = true; }
 
-  // Migrate old boolean required -> priority
+  if (state.version !== 4) { state.version = 4; changed = true; }
+
+  // Migrate old boolean required -> priority, and ensure startedAt field
   state.shots.forEach((shot) => {
     if (typeof shot.required === "boolean" && shot.priority === undefined) {
       shot.priority = shot.required ? 1 : 3;
@@ -1185,6 +1410,10 @@ function normalizeRestoredState() {
     }
     if (shot.priority === undefined) {
       shot.priority = 3;
+      changed = true;
+    }
+    if (typeof shot.startedAt !== "string") {
+      shot.startedAt = "";
       changed = true;
     }
   });
@@ -1212,7 +1441,9 @@ function isValidTimeInputValue(value) {
 
 function persistState() {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    // Don't persist transient undo — clone-and-strip
+    const toSave = { ...state, lastUndo: null };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   } catch (error) {
     console.warn("Unable to persist MARTINI state", error);
   }

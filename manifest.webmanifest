@@ -4,23 +4,21 @@
   "description": "Offline one-screen shoot tracker for indie film crews.",
   "display": "standalone",
   "start_url": "./index.html",
-  "background_color": "#0f0c04",
+  "scope": "./",
+  "background_color": "#f4efe4",
   "theme_color": "#c8932a",
   "icons": [
     {
-      "src": "./favicon-96x96.png",
-      "sizes": "96x96",
-      "type": "image/png"
-    },
-    {
       "src": "./web-app-manifest-192x192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "./web-app-manifest-512x512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }

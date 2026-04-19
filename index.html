@@ -25,46 +25,49 @@
         </div>
 
         <section class="status-board" aria-label="Live production status">
-          <div class="status-strip">
+          <div class="status-head">
             <div class="clock-cluster">
-              <h1 id="currentTime" class="current-time">--:--</h1>
+              <p class="eyebrow">Current Time</p>
+              <h2 id="currentTime" class="current-time">--:--</h2>
               <p id="dayStatus" class="day-status">Waiting to start</p>
               <p id="loadedFileName" class="file-name">No shot list loaded</p>
             </div>
 
-            <div class="metrics-cluster">
-              <div class="metric-item">
-                <span class="metric-label">Wrap</span>
-                <article id="hardWrapCard" class="metric-value-wrap">
-                  <button id="hardWrapEditButton" class="wrap-edit-button" type="button">
-                    <strong id="hardWrapDisplay" class="metric-value">--</strong>
-                    <span id="hardWrapEditHint" class="metric-edit-hint">edit</span>
-                  </button>
-                  <div id="liveHardWrapEditor" class="hard-wrap-editor" hidden>
-                    <label class="visually-hidden" for="liveHardWrapInput">Edit hard wrap</label>
-                    <input id="liveHardWrapInput" class="hard-wrap-input" type="time" />
-                    <button id="liveHardWrapDoneButton" class="mini-button hard-wrap-done" type="button">
-                      Done
-                    </button>
-                  </div>
-                </article>
-              </div>
-              <div class="metric-item">
-                <span class="metric-label">Forecast</span>
-                <strong id="forecastWrapDisplay" class="metric-value">--</strong>
-              </div>
-              <div class="metric-item">
-                <span class="metric-label">Must-Have</span>
-                <strong id="requiredRemainingDisplay" class="metric-value">0</strong>
-              </div>
-              <div class="metric-item">
-                <span class="metric-label">Pace</span>
-                <strong id="paceStatusDisplay" class="metric-value metric-pace">Ready</strong>
-              </div>
-            </div>
-
             <div class="state-cluster">
+              <span class="state-label">State</span>
               <strong id="paceIndicatorDisplay" class="state-indicator state-ready">Ready</strong>
+            </div>
+          </div>
+
+          <article id="hardWrapCard" class="hero-wrap-card">
+            <button id="hardWrapEditButton" class="hero-wrap-button" type="button">
+              <span class="hero-wrap-head">
+                <span class="hero-label">Hard Wrap</span>
+                <span id="hardWrapEditHint" class="hero-edit-hint">Edit</span>
+              </span>
+              <strong id="hardWrapDisplay" class="hero-value">--</strong>
+            </button>
+            <div id="liveHardWrapEditor" class="hard-wrap-editor" hidden>
+              <label class="visually-hidden" for="liveHardWrapInput">Edit hard wrap</label>
+              <input id="liveHardWrapInput" class="hard-wrap-input" type="time" />
+              <button id="liveHardWrapDoneButton" class="mini-button hard-wrap-done" type="button">
+                Done
+              </button>
+            </div>
+          </article>
+
+          <div class="secondary-metrics" aria-label="Live production metrics">
+            <div class="metric-item">
+              <span class="metric-label">Forecast</span>
+              <strong id="forecastWrapDisplay" class="metric-value">--</strong>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">Must-Have Left</span>
+              <strong id="requiredRemainingDisplay" class="metric-value">0</strong>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">Pace</span>
+              <strong id="paceStatusDisplay" class="metric-value">Ready</strong>
             </div>
           </div>
         </section>
@@ -119,6 +122,7 @@
               <p id="currentShotLabel" class="shot-label">The next pending shot will appear here.</p>
               <div class="shot-metrics">
                 <span id="currentShotMinutes" class="shot-pill">Planned -- min</span>
+                <span id="currentShotLive" class="shot-pill shot-pill-live" hidden>Live --</span>
                 <span id="currentShotDeadline" class="shot-pill">No deadline</span>
               </div>
             </div>
@@ -156,9 +160,14 @@
               </div>
               <div class="summary-head-actions">
                 <p id="lastActionText" class="supporting-copy">No actions yet.</p>
-                <button id="liveResetButton" class="mini-button" type="button">
-                  New Day
-                </button>
+                <div class="summary-head-buttons">
+                  <button id="exportButton" class="mini-button" type="button" disabled>
+                    Export CSV
+                  </button>
+                  <button id="liveResetButton" class="mini-button" type="button">
+                    New Day
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -183,6 +192,11 @@
           </article>
         </section>
       </main>
+
+      <div id="undoToast" class="undo-toast" hidden role="status" aria-live="polite">
+        <span id="undoToastText" class="undo-toast-text">Shot marked done.</span>
+        <button id="undoToastButton" class="undo-toast-button" type="button">UNDO</button>
+      </div>
 
       <footer id="actionBar" class="action-bar">
         <button

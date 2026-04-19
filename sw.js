@@ -1,4 +1,7 @@
-const CACHE_NAME = "martini-static-v1";
+// MARTINI service worker — v2
+// Non-atomic install so a single missing asset doesn't break offline entirely.
+
+const CACHE_NAME = "martini-static-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -6,11 +9,25 @@ const APP_SHELL = [
   "./app.js",
   "./manifest.webmanifest",
   "./sample-shots.csv",
+  "./favicon.ico",
+  "./favicon-96x96.png",
+  "./apple-touch-icon.png",
+  "./web-app-manifest-192x192.png",
+  "./web-app-manifest-512x512.png",
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(
+        APP_SHELL.map((url) =>
+          cache.add(url).catch((err) => {
+            // Skip missing assets instead of failing the whole install.
+            console.warn(`SW: skipped ${url}`, err);
+          })
+        )
+      )
+    )
   );
   self.skipWaiting();
 });

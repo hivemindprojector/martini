@@ -1,0 +1,13 @@
+id,scene,label,planned minutes,priority,optional deadline tag
+1,12A,Wide master,18,1,10:30 AM
+2,12A,Two-shot at booth,14,1,
+3,12A,Insert coffee pour,6,3,
+4,12B,Close on Mia,11,1,12:15 PM
+5,12B,Close on Theo,10,1,
+6,12B,Insert hand on phone,4,3,
+7,13,Hallway walk-and-talk,20,1,2:30 PM
+8,13,Reverse over shoulder,12,2,
+9,13,Door insert,5,3,
+10,14,Rooftop profile,16,1,5:00 PM
+11,14,Rooftop wide,12,2,
+12,14,Sunset plate,4,3,
